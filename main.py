@@ -63,17 +63,23 @@ def main():
 
     # print(model.coefficients())
     sim_test = model.simulate(x0=[0, 0, 0], u=u, t=t)
-    sim_test_df = pd.DataFrame(sim_test, columns=['Roll', 'Pitch', 'Yaw'])
-    plot_data(sim_test_df)
-
-
-    # input_features=['Roll', 'Pitch', 'Yaw'],
-    # input_feature_names=['input_1', 'input_2']
     
-    exit()
+    # plot results 
+    # sim_test_df = pd.DataFrame(sim_test, columns=['Roll', 'Pitch', 'Yaw'])    
+    # plot_data(sim_test_df)
+    
+    
     
     coeffs = model.coefficients()
     
+    n = coeffs.shape[0] # number of states nxn
+    n_dash = coeffs.shape[1]
+    m = u.shape[1] # number of inputs nxp
+
+    print('Coefficients: ', coeffs)
+    print('States: ', n, n_dash,'\nInputs:', m)
+    
+    exit()
     
     # model.print()
     # print(model.coefficients())
