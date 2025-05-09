@@ -1,0 +1,23 @@
+{
+
+	"version": "0.2.0",
+	
+	"configurations": [
+	
+		{
+		
+		"name": "Python Debugger: Current File",
+		
+		"type": "debugpy",
+		
+		"request": "launch",
+		
+		"program": "/Users/sebastianozuddas/Programming/london_drone_stability/main.py",
+		"console": "integratedTerminal",
+		
+		"python": "/Users/sebastianozuddas/anaconda3/envs/london_drone_env/bin/python3"
+		
+		}
+	
+	]
+}
