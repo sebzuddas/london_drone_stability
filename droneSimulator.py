@@ -26,5 +26,9 @@ class droneSimulator:
         pitch  += pitch_noise
         yaw    += yaw_noise
 
-        df = pd.DataFrame({'Time': time, 'Roll': roll, 'Pitch': pitch, 'Yaw': yaw})
+        # Adding some inputs to the system
+        input_1 = np.sin(1*np.pi*time)  # generates roll data with some noise
+        input_2 = np.cos(1*np.pi*time)  # generates pitch data with some noise
+
+        df = pd.DataFrame({'Time': time, 'Roll': roll, 'Pitch': pitch, 'Yaw': yaw, 'input_1':input_1, 'input_2':input_2})
         return df

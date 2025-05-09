@@ -32,7 +32,6 @@ def main():
     duration = 1
     t_end_test = fs*duration
 
-
     # # Initialize integrator keywords for solve_ivp to replicate the odeint defaults
     # integrator_keywords = {}
     # integrator_keywords["rtol"] = 1e-12
@@ -41,42 +40,60 @@ def main():
 
     ########################################################################################
 
-
     simulator = droneSimulator(frequency=fs)
 
     data = simulator.generate_data(duration=duration)
 
-
-    # t_train = np.arange(0, 
-    #                     t_end_train, 
-    #                     dt)
-    
-    # x0_train = [-8, 8, 27]
-    # t_train_span = (t_train[0], t_train[-1])
-    # x_train = solve_ivp(
-    #     lorenz, 
-    #     t_train_span, 
-    #     x0_train, 
-    #     t_eval=t_train
-    # ).y.T
-
-    # print(data.columns)
-    # exit()
-
-
     ##############################################################################################################
     # Instantiate and fit the SINDy model
-    # feature_library = ps.GeneralizedLibrary([ps.PolynomialLibrary(), ps.FourierLibrary()]))
+    feature_library = ps.IdentityLibrary() # ps.GeneralizedLibrary([ps.PolynomialLibrary(), ps.FourierLibrary()])
+    sparse_regression_optimizer = ps.STLSQ(threshold=0)
     model = ps.SINDy(feature_names = ['Roll', 'Pitch', 'Yaw'], 
+                     feature_library=feature_library, 
+                     optimizer = sparse_regression_optimizer
                      )
-    model.fit(data[['Roll', 'Pitch', 'Yaw']].values, t=data['Time'].values)# t can be the dt, so long as it's consistent
+    
+    model.fit(x=data[['Roll', 'Pitch', 'Yaw']].values, 
+              u=data[['input_1', 'input_2']].values, 
+              t=data['Time'].values# t can be the dt, so long as it's consistent
+              )
+
+    t=np.arange(0, t_end_test, dt)
+    u=np.ones((len(t), 2))  # constant input for both input_1 and input_2
+
+    # print(model.coefficients())
+    sim_test = model.simulate(x0=[0, 0, 0], u=u, t=t)
+    sim_test_df = pd.DataFrame(sim_test, columns=['Roll', 'Pitch', 'Yaw'])
+    plot_data(sim_test_df)
+
+
+    # input_features=['Roll', 'Pitch', 'Yaw'],
+    # input_feature_names=['input_1', 'input_2']
+    
+    exit()
+    
+    coeffs = model.coefficients()
+    
+    
     # model.print()
-    print(model.coefficients())
-    print(model.get_feature_names())
+    # print(model.coefficients())
+    # print(model.inputs())
+    
+    # A: coefficients for Roll, Pitch, Yaw
+    A_cols = [i for i, f in enumerate(features) if f in ['Roll', 'Pitch', 'Yaw']]
+    B_cols = [i for i, f in enumerate(features) if f in ['input_1', 'input_2']]
+
+    A = coeffs[:, A_cols]
+    B = coeffs[:, B_cols]
+
+    print(A)
+    print(B)
+
+    exit()
 
     #np.arange(0, t_end_test, dt)
-    sim_test = model.simulate(x0=[0, 0, 0], t=np.arange(0, t_end_test, dt))
-    print(sim_test)
+    # sim_test = model.simulate(x0=[0, 0, 0], t=np.arange(0, t_end_test, dt))
+    # print(sim_test)
 
 
 def plot_data(data):
