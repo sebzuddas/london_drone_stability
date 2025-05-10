@@ -1,4 +1,4 @@
-from droneSimulator import droneSimulator
+
 import numpy as np
 import pandas as pd
 
@@ -27,8 +27,6 @@ import control.matlab
 import matplotlib.pyplot as plt
 from scipy.linalg import kron
 
-import math
-import random
 
 
 def main():
@@ -73,6 +71,8 @@ def main():
               )
     np.save("/Users/sebastianozuddas/Programming/london_drone_stability/data/model_coefficients.npy", model.coefficients())
     
+
+    
     print(inputs.shape[0])  
     
     t=np.arange(0, inputs.shape[0], 1)
@@ -88,7 +88,7 @@ def main():
     # sim_test_df = pd.DataFrame(sim_test)    
     # plot_data(sim_test_df)
         
-    coeffs = model.coefficients()
+    coeffs = np.load("/Users/sebastianozuddas/Programming/london_drone_stability/data/model_coefficients.npy")
 
     
     n = coeffs.shape[0] # number of states nxn
@@ -265,9 +265,10 @@ def main():
             Uopt = Uopt[0]
 
             uopt = Uopt[:m].reshape(-1, 1)  # Ensure uopt is a column vector
-            
+            print(uopt)
+
             # print(d)
-            # exit()
+            exit()
 
             x = A @ x + B @ (uopt) # adding in disturbance, such a model assumes B=E, and this may not be needed. 
             y = C @ x # no Du term
@@ -383,62 +384,6 @@ def spectral_radius(A:np.array, B:np.array, KN:np.array):
     sr = np.max(np.abs(eigenvals))
     
     print('Stabilising', sr) if sr < 1 else print('Not Stabilising', sr)
-
-
-# def plot_output(xs:np.array, us:np.array, ys:np.array, costed_control_inputs_cumsum:np.array):
-#     # # Convert lists to numpy arrays for easier manipulation
-#     # expect xs, us to be a list of numpy arrays
-
-#     # Plotting the results
-#     plt.figure(figsize=(12, 6))
-
-#     # Plotting states
-#     state_label = ['$\Delta \omega (t)$', '$\Delta p^m (t)$', '$\Delta p^v (t)$', '$\Delta p^{dr} (t)$']
-#     plt.subplot(4, 1, 1)
-#     for i in range(xs.shape[1]):
-#         plt.plot(xs[:, i], label=state_label[i])
-#     plt.title('State Trajectories')
-#     plt.xlabel('Time Step')
-#     plt.ylabel('State Values')
-#     plt.grid()
-#     plt.legend()
-
-#     # Plotting control inputs
-#     control_label = ['$\Delta p^{m, ref} (t)$', '$\Delta p^{dr, ref} (t)$']
-#     plt.subplot(4, 1, 2)
-#     for i in range(us.shape[1]):
-#         plt.plot(us[:, i], label=control_label[i])
-#     plt.title('Control Inputs')
-#     plt.xlabel('Time Step')
-#     plt.ylabel('Control Values')
-#     plt.grid()
-#     plt.legend()
-    
-
-
-#     # Plotting outputs
-#     price_label = ['m,ref cost (£)', 'm, dr cost (£)', 'Total Cost (£)']
-#     plt.subplot(4, 1, 3)
-#     for i in range(len(price_label)):
-#         plt.plot(costed_control_inputs_cumsum[:, i], label=price_label[i])
-#     plt.title('Control Action Cost')
-#     plt.xlabel('Time Step')
-#     plt.ylabel('Total Cost')
-#     plt.grid()
-#     plt.legend()
-
-#     # Plotting outputs
-#     plt.subplot(4, 1, 4)
-#     plt.plot(ys, label='$\Delta f (t)$')
-#     plt.title('Outputs')
-#     plt.xlabel('Time Step')
-#     plt.ylabel('Output Values')
-#     plt.grid()
-#     plt.legend()
-
-#     plt.tight_layout()
-#     plt.show()
-
 
 def check_symmetric(a:np.array):
     """
