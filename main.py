@@ -58,9 +58,6 @@ def main():
     states = data[:, :3]
     inputs = data[:, 3:]
     
-    
-    
-
     ##############################################################################################################
     # Instantiate and fit the SINDy model
     feature_library = ps.IdentityLibrary() # ps.GeneralizedLibrary([ps.PolynomialLibrary(), ps.FourierLibrary()])
@@ -78,7 +75,6 @@ def main():
     
     print(inputs.shape[0])  
     
-
     t=np.arange(0, inputs.shape[0], 1)
     u=np.ones((inputs.shape[0], 3))  # constant input for both input_1 and input_2
 
@@ -86,21 +82,17 @@ def main():
     # exit()
 
     # print(model.coefficients())
-    sim_test = model.simulate(x0=[0, 0, 0], u=u, t=t)
+    # sim_test = model.simulate(x0=[0, 0, 0], u=u, t=t)
     
     # plot results 
-    sim_test_df = pd.DataFrame(sim_test)    
+    # sim_test_df = pd.DataFrame(sim_test)    
     # plot_data(sim_test_df)
-    
-    
-    
+        
     coeffs = model.coefficients()
     
     n = coeffs.shape[0] # number of states nxn
     n_dash = coeffs.shape[1]
     m = u.shape[1] # number of inputs nxp
-    
-    
     
     ############################################# CHECK
     states = model.coefficients()[:, :3]
@@ -120,7 +112,6 @@ def main():
 
     D = np.zeros((p, q))
     
-
     sysc = ct.matlab.ss(A, B, C, D)
     sysd = ct.matlab.c2d(sysc, dt)
     A, BE, C, D = ct.matlab.ssdata(sysd)
@@ -129,19 +120,19 @@ def main():
     ############################## TUNING PARAMS
     Q = np.array(
     [   
-        [1, 0, 0],   # x
-        [0, 1, 0],   # y
-        [0, 0, 1]   # z
+        [0.0001, 0, 0],   # x
+        [0, 0.0001, 0],   # y
+        [0, 0, 0.0001]   # z
     ]) #State cost matrix
 
     R = np.array(
     [
-        [1, 0, 0], #throttle
-        [0, 1, 0], #roll
-        [0, 0, 1]  #pitch
+        [0.1, 0, 0], #throttle
+        [0, 0.00001, 0], #roll
+        [0, 0, 0.000001]  #pitch
     ]) #Input cost matrix
     
-    N = 10 # prediction horizon
+    N = 4 # prediction horizon
     
     ############################## 
 
@@ -196,12 +187,12 @@ def main():
     I = np.identity(3)
     Pu = np.vstack((I, -I))
 
-    qu = np.array([[0],
-                   [100],
-                   [45],
-                   [45],
-                   [45],
-                   [45],])
+    qu = np.array([[10000],
+                   [10000],
+                   [10000],
+                   [10000],
+                   [10000],
+                   [10000],])
     
     Px = np.vstack((C, -C))
     # Px = np.array([[-1, 0],#x
@@ -211,12 +202,19 @@ def main():
     #                [-1, 0],#z
     #                [0, 1]])
     
-    qx = np.array([[50],#x
-                   [50], 
-                   [50],#y
-                   [50],
-                   [1], #z
-                    [25] ])
+    qx = np.array([[10000],#x
+                   [10000], 
+                   [10000],#y
+                   [10000],
+                   [10000], #z
+                    [10000] ])
+    
+    # qx = np.array([[50],#x
+    #             [50], 
+    #             [50],#y
+    #             [50],
+    #             [1], #z
+    #             [25] ])
 
 
 
@@ -226,13 +224,13 @@ def main():
 
 
     x0 = np.array([
-        [0],
-        [0],
-        [0]])
+        [0],#x
+        [0],#y
+        [0]])#z
     
     u0 = np.array([[0], 
                    [0],
-                   [0]]) # system inputs, dpm,ref(t) dpdr,ref(t)
+                   [0]]) # system inputs
 
     timesteps = 150
     k = 0
@@ -242,24 +240,28 @@ def main():
     us = []
     ys = []
 
+    x_ref = np.array([[0], 
+                      [0], 
+                      [0]])  # example reference
+
+    if not np.all(Px @ x0 <= qx):
+        print("Initial state x0 violates state constraints")
 
     while k <= timesteps:
 
         try:
 
-            a = L @ x
+            a = L @ (x - x_ref)            
             PcT = -Pc.T
             b = -(qc + Sc @ x)  # Inequality constraint vector, note the sign change
             a = a.flatten()
             b = b.flatten()
 
             Uopt = quadprog.solve_qp(H, a, PcT, b) # calculate the optimal control sequence, considering input constraints
-            # print(type(Uopt[0]))
+            # print(Uopt[0])
             Uopt = Uopt[0]
 
             uopt = Uopt[:m].reshape(-1, 1)  # Ensure uopt is a column vector
-
-    
             
             # print(d)
             # exit()
@@ -288,21 +290,29 @@ def main():
             print(f'B: {B}\n')
             print(f'uopt: {uopt}\n')
 
-            # xs = np.array(xs).squeeze()
-            # us = np.array(us).squeeze()
-            # ys = np.array(ys).squeeze()
+            xs = np.array(xs).squeeze()
+            us = np.array(us).squeeze()
+            ys = np.array(ys).squeeze()
 
-            # plot_output(xs, us, ys, costed_control_inputs_cumsum)
+            plot_data(xs, title="State Trajectory")
+            plot_data(us, title="Control Trajectory")
+            plot_data(ys, title="Output Trajectory")
             exit()
 
     xs = np.array(xs)
     us = np.array(us)
     ys = np.array(ys)
     
+    
+    xs = np.array(xs).squeeze(-1)  # shape: (151, 3)
+    us = np.array(us).squeeze(-1)
+    ys = np.array(ys).squeeze(-1)
 
     # results = pd.DataFrame(xs)
 
-    plot_output(xs, us, ys)
+    plot_data(xs, title="State Trajectory")
+    plot_data(us, title="Control Trajectory")
+    plot_data(ys, title="Output Trajectory")
 
 
 def plot_output(xs:np.array, us:np.array, ys:np.array):
@@ -346,10 +356,12 @@ def plot_output(xs:np.array, us:np.array, ys:np.array):
     plt.tight_layout()
     plt.show()
 
-def plot_data(data):
-    # fig = px.line(data, x='Time', y=['Roll', 'Pitch', 'Yaw'])
-    fig = px.line_3d(data, x=0, y=1, z=2)
+def plot_data(data, title="3D Line Plot"):
+    df = pd.DataFrame(data, columns=['X', 'Y', 'Z'])
+    fig = px.line_3d(df, x='X', y='Y', z='Z', title=title)
     fig.show()
+
+
 
 def loop():
     # The control loop 

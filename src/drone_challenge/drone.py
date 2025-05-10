@@ -42,13 +42,13 @@ class DroneClient:
         self.control_loop()
 
     def control_drone(self, iterations):
-        print(f"Start of control_drone. Position: ", self.position.x, self.position.y, self.position.z)
+        # print(f"Start of control_drone. Position: ", self.position.x, self.position.y, self.position.z)
 
         # Update the actual speed PIDs and get their output as the controls
 
-        throttle =50*int(math.sin(iterations)*50) # if self.position.z < self.goal_region.maximal_point.z else 0
-        pitch = int(math.cos(iterations)*45)
-        roll = int(math.sin(iterations)*45)
+        throttle = int(50*math.sin(0.1*iterations)+50) # if self.position.z < self.goal_region.maximal_point.z else 0
+        pitch = int(math.cos(0.5*iterations)*45)
+        roll = int(math.sin(0.5*iterations)*45)
 
         print("Requesting control input of:")
         print(f"{throttle=}")
@@ -80,19 +80,19 @@ class DroneClient:
                 if result.WhichOneof("data") == "start":
                     self.goal_region = result.start.goal ############################################
                     
-                    print("Goal:", result.start.goal, "\nBoundary:", result.start.boundary)
+                    # print("Goal:", result.start.goal, "\nBoundary:", result.start.boundary)
                     
                     
-                    print("Goal region: ", self.goal_region)
+                    # print("Goal region: ", self.goal_region)
                     
-                    print("Start:", result.start.drone_location.x, result.start.drone_location.y, result.start.drone_location.z)
+                    # print("Start:", result.start.drone_location.x, result.start.drone_location.y, result.start.drone_location.z)
                     
                     self.position = result.start.drone_location 
 
                     self.simulation_state = SimulationState.STARTED
                     iterations+=1
                     
-                    exit()
+                    # exit()
                     continue
                 else:
                     raise ValueError("Did not receive Simulation Start message as first message")
