@@ -43,6 +43,7 @@ def main():
     simulator = droneSimulator(frequency=fs)
 
     data = simulator.generate_data(duration=duration)
+    # plot_data(data)
 
     ##############################################################################################################
     # Instantiate and fit the SINDy model
@@ -65,8 +66,8 @@ def main():
     sim_test = model.simulate(x0=[0, 0, 0], u=u, t=t)
     
     # plot results 
-    # sim_test_df = pd.DataFrame(sim_test, columns=['Roll', 'Pitch', 'Yaw'])    
-    # plot_data(sim_test_df)
+    sim_test_df = pd.DataFrame(sim_test, columns=['Roll', 'Pitch', 'Yaw'])    
+    plot_data(sim_test_df)
     
     
     
