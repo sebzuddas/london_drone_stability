@@ -108,7 +108,7 @@ class DroneClient:
                 print("Simulation ended. Success: ", result.ended.success, " (", result.ended.details, ")")
                 print(dc.history)
                 numpy_history = np.array(self.history)
-                np.save("/Users/liamburke/dev/tmp/london_drone_stability/data/states_inputs_history_2.npy", numpy_history)
+                np.save("/Users/liamburke/dev/tmp/london_drone_stability/data/saved_data/states_inputs_history_2.npy", numpy_history)
                 return
 
             ############################ Update - pass into PID loop ######################################

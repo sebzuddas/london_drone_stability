@@ -59,7 +59,7 @@ def main():
     # data = simulator.generate_data(duration=duration)
     # plot_data(data)
 
-    data = np.load("data/states_inputs_history_2.npy")
+    data = np.load("data/saved_data/states_inputs_history_2.npy")
     states = data[:, :3]
     inputs = data[:, 3:]
     
@@ -76,7 +76,7 @@ def main():
               u=inputs, 
             #   t=data['Time'].values# t can be the dt, so long as it's consistent
               )
-    np.save("/Users/liamburke/dev/tmp/london_drone_stability/data/model_coefficients.npy", model.coefficients())
+    np.save("/Users/liamburke/dev/tmp/london_drone_stability/data/saved_data/model_coefficients.npy", model.coefficients())
     
     print(inputs.shape[0])  
     
