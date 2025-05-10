@@ -101,8 +101,8 @@ def main():
     
     N = 18 # prediction horizon
     
-    # K_inf = ct.dlqr(A, B, Q, R)
-    K_2 = -1 * ct.place(A, B,[0.01, 0, 0, 0.01])
+    #K_inf = ct.dlqr(A, B, Q, R)
+    K_2 = -1 * ct.place(A, B,[0.01, 0.01, 0.1, 0.01])
 
     # print(K_inf)
     # print(K_2)
