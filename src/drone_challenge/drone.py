@@ -46,7 +46,7 @@ class DroneClient:
 
         # Update the actual speed PIDs and get their output as the controls
 
-        throttle = int(50*math.sin(0.1*iterations)+50) # if self.position.z < self.goal_region.maximal_point.z else 0
+        throttle = int(50*math.sin(0.5*iterations)+50) # if self.position.z < self.goal_region.maximal_point.z else 0
         pitch = int(math.cos(0.5*iterations)*45)
         roll = int(math.sin(0.5*iterations)*45)
 
