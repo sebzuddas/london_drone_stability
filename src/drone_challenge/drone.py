@@ -42,18 +42,18 @@ class DroneClient:
         self.control_loop()
 
     def control_drone(self, iterations):
-        print(f"Start of control_drone. Position: ", self.position.x, self.position.y, self.position.z)
+        # print(f"Start of control_drone. Position: ", self.position.x, self.position.y, self.position.z)
 
         # Update the actual speed PIDs and get their output as the controls
 
-        throttle =50*int(math.sin(iterations)*50) # if self.position.z < self.goal_region.maximal_point.z else 0
+        throttle =int(math.sin(iterations)*50)+50 # if self.position.z < self.goal_region.maximal_point.z else 0
         pitch = int(math.cos(iterations)*45)
         roll = int(math.sin(iterations)*45)
 
-        print("Requesting control input of:")
-        print(f"{throttle=}")
-        print(f"{pitch=}")
-        print(f"{roll=}")
+        # print("Requesting control input of:")
+        # print(f"{throttle=}")
+        # print(f"{pitch=}")
+        # print(f"{roll=}")
 
         control = pb2.DroneClientMsg(
             throttle=throttle,
@@ -80,19 +80,18 @@ class DroneClient:
                 if result.WhichOneof("data") == "start":
                     self.goal_region = result.start.goal ############################################
                     
-                    print("Goal:", result.start.goal, "\nBoundary:", result.start.boundary)
+                    # print("Goal:", result.start.goal, "\nBoundary:", result.start.boundary)
                     
                     
-                    print("Goal region: ", self.goal_region)
+                    # print("Goal region: ", self.goal_region)
                     
-                    print("Start:", result.start.drone_location.x, result.start.drone_location.y, result.start.drone_location.z)
+                    # print("Start:", result.start.drone_location.x, result.start.drone_location.y, result.start.drone_location.z)
                     
                     self.position = result.start.drone_location 
 
                     self.simulation_state = SimulationState.STARTED
                     iterations+=1
                     
-                    exit()
                     continue
                 else:
                     raise ValueError("Did not receive Simulation Start message as first message")
@@ -103,14 +102,14 @@ class DroneClient:
                 print("Simulation ended. Success: ", result.ended.success, " (", result.ended.details, ")")
                 print(dc.history)
                 numpy_history = np.array(self.history)
-                np.save("/Users/sebastianozuddas/Programming/london_drone_stability/data/states_inputs_history.npy", numpy_history)
+                np.save("/Users/liamburke/dev/tmp/london_drone_stability/data/states_inputs_history_2.npy", numpy_history)
                 return
 
             ############################ Update - pass into PID loop ######################################
             if result.WhichOneof("data") == "update":
                 self.position = result.update.drone_location
 
-                print(f"Position: ", self.position.x, self.position.y, self.position.z)
+                # print(f"Position: ", self.position.x, self.position.y, self.position.z)
 
                 # Run PID loop
                 self.control_drone(iterations)
@@ -120,7 +119,7 @@ class DroneClient:
 if __name__ == "__main__":
     host = "172.237.101.153"
     port = 10301
-    token = "MPC_Man"
+    token = "liam.burke"
 
     dc = DroneClient(host, port, token)
     dc.start()
