@@ -305,8 +305,6 @@ def main():
     plot_output(xs, us, ys)
 
 
-
-
 def plot_output(xs:np.array, us:np.array, ys:np.array):
     # # Convert lists to numpy arrays for easier manipulation
     # expect xs, us to be a list of numpy arrays
