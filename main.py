@@ -94,6 +94,7 @@ def main():
     # plot_data(sim_test_df)
         
     coeffs = model.coefficients()
+
     
     n = coeffs.shape[0] # number of states nxn
     n_dash = coeffs.shape[1]
@@ -125,19 +126,19 @@ def main():
     ############################## TUNING PARAMS
     Q = np.array(
     [   
-        [0.0001, 0, 0],   # x
-        [0, 0.0001, 0],   # y
-        [0, 0, 0.0001]   # z
+        [0.01, 0, 0],   # x
+        [0, 0.01, 0],   # y
+        [0, 0, 0.01]   # z
     ]) #State cost matrix
 
     R = np.array(
     [
         [0.1, 0, 0], #throttle
-        [0, 0.00001, 0], #roll
-        [0, 0, 0.000001]  #pitch
+        [0, 1, 0], #roll
+        [0, 0, 1]  #pitch
     ]) #Input cost matrix
     
-    N = 4 # prediction horizon
+    N = 7 # prediction horizon
     
     ############################## 
 
@@ -192,34 +193,36 @@ def main():
     I = np.identity(3)
     Pu = np.vstack((I, -I))
 
-    qu = np.array([[10000],
-                   [10000],
-                   [10000],
-                   [10000],
-                   [10000],
-                   [10000],])
-    
+    # qu = np.array([[10000],
+    #                [10000],
+    #                [10000],
+    #                [10000],
+    #                [10000],
+    #                [10000],])
+
+    qu = np.array([[0],
+                   [100],
+                   [45],
+                   [45],
+                   [45],
+                   [45],])
+
+
     Px = np.vstack((C, -C))
-    # Px = np.array([[-1, 0],#x
-    #                [0, 1],
-    #                [-1, 0],#y
-    #                [0, 1],
-    #                [-1, 0],#z
-    #                [0, 1]])
+
+    # qx = np.array([[10000],#x
+    #                [10000], 
+    #                [10000],#y
+    #                [10000],
+    #                [10000], #z
+    #                 [10000] ])
     
-    qx = np.array([[10000],#x
-                   [10000], 
-                   [10000],#y
-                   [10000],
-                   [10000], #z
-                    [10000] ])
-    
-    # qx = np.array([[50],#x
-    #             [50], 
-    #             [50],#y
-    #             [50],
-    #             [1], #z
-    #             [25] ])
+    qx = np.array([[50],#x
+                [50], 
+                [50],#y
+                [50],
+                [1], #z
+                [25] ])
 
 
 
@@ -245,9 +248,9 @@ def main():
     us = []
     ys = []
 
-    x_ref = np.array([[0], 
-                      [0], 
-                      [0]])  # example reference
+    x_ref = np.array([[10], 
+                      [10], 
+                      [10]])  # example reference
 
     if not np.all(Px @ x0 <= qx):
         print("Initial state x0 violates state constraints")
@@ -274,11 +277,11 @@ def main():
             x = A @ x + B @ (uopt) # adding in disturbance, such a model assumes B=E, and this may not be needed. 
             y = C @ x # no Du term
 
-            # print(f'Iteration: {k}\n')
-            # print(f'A: {A}\n')
-            # print(f'x: {x}\n')
-            # print(f'B: {B}\n')
-            # print(f'uopt: {uopt}\n')
+            print(f'Iteration: {k}\n')
+            print(f'A: {A}\n')
+            print(f'x: {x}\n')
+            print(f'B: {B}\n')
+            print(f'uopt: {uopt}\n')
 
             k += 1
             
@@ -303,6 +306,8 @@ def main():
             plot_data(us, title="Control Trajectory")
             plot_data(ys, title="Output Trajectory")
             exit()
+
+    print(timesteps)
 
     xs = np.array(xs)
     us = np.array(us)
