@@ -181,11 +181,6 @@ def main():
     us = []
     ys = []
 
-    # print(qc)
-    # print((Sc))
-    # print((Sc@x)+qc)
-    # exit()
-
     while k <= timesteps:
 
         try:

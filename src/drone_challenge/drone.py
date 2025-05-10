@@ -2,6 +2,8 @@ import queue
 from enum import Enum
 from time import sleep
 
+import math
+import numpy as np
 import generated.drone_pb2 as pb2
 import generated.drone_pb2_grpc as pb2_gprc
 import grpc
@@ -30,18 +32,23 @@ class DroneClient:
         metadata = [("authorization", f"Bearer {token}")]
         self.event_stream = self.stub.DroneConnection(iter(self.send_queue.get, None), metadata=metadata)
 
+        self.history = []
+        self.dt = 100 # time steps in ms ##### CHECK ###########################################################################
+        self.time_length = 180 #how many seconds should the sim run
+
+
     def start(self):
         # Start the control loop etc
         self.control_loop()
 
-    def control_drone(self):
+    def control_drone(self, iterations):
         print(f"Start of control_drone. Position: ", self.position.x, self.position.y, self.position.z)
 
         # Update the actual speed PIDs and get their output as the controls
 
-        throttle = 100 if self.position.z < self.goal_region.maximal_point.z else 0
-        pitch = 0
-        roll = 0
+        throttle =50*int(math.sin(iterations)*50) # if self.position.z < self.goal_region.maximal_point.z else 0
+        pitch = int(math.cos(iterations)*45)
+        roll = int(math.sin(iterations)*45)
 
         print("Requesting control input of:")
         print(f"{throttle=}")
@@ -55,23 +62,37 @@ class DroneClient:
         )
         self.send_queue.put(control)
 
+        self.history.append((self.position.x, self.position.y, self.position.z ,throttle, roll, pitch))
+
+
     def receive(self):
         return next(self.event_stream)
 
     def control_loop(self):
         """Controls the drone until crash, success, or some other failure"""
-        while self.simulation_state != SimulationState.ENDED:
+        iterations = 0
+        while iterations <= self.dt * self.time_length:
+        # while self.simulation_state != SimulationState.ENDED:
             result = self.receive()
 
             if self.simulation_state == SimulationState.INIT:
                 # Check if the first message is simulate start, and save the goal
                 if result.WhichOneof("data") == "start":
-                    self.goal_region = result.start.goal
+                    self.goal_region = result.start.goal ############################################
+                    
+                    print("Goal:", result.start.goal, "\nBoundary:", result.start.boundary)
+                    
                     
                     print("Goal region: ", self.goal_region)
-                    self.position = result.start.drone_location
+                    
+                    print("Start:", result.start.drone_location.x, result.start.drone_location.y, result.start.drone_location.z)
+                    
+                    self.position = result.start.drone_location 
 
                     self.simulation_state = SimulationState.STARTED
+                    iterations+=1
+                    
+                    exit()
                     continue
                 else:
                     raise ValueError("Did not receive Simulation Start message as first message")
@@ -80,23 +101,27 @@ class DroneClient:
             if result.WhichOneof("data") == "ended":
                 self.simulation_state = SimulationState.ENDED
                 print("Simulation ended. Success: ", result.ended.success, " (", result.ended.details, ")")
+                print(dc.history)
+                numpy_history = np.array(self.history)
+                np.save("/Users/sebastianozuddas/Programming/london_drone_stability/data/states_inputs_history.npy", numpy_history)
                 return
 
-            # Update - pass into PID loop
+            ############################ Update - pass into PID loop ######################################
             if result.WhichOneof("data") == "update":
                 self.position = result.update.drone_location
 
                 print(f"Position: ", self.position.x, self.position.y, self.position.z)
 
                 # Run PID loop
-                self.control_drone()
+                self.control_drone(iterations)
+                iterations+=1
+
 
 if __name__ == "__main__":
     host = "172.237.101.153"
     port = 10301
-    token = "leeroy.jenkins"
+    token = "MPC_Man"
 
-    while True:
-        dc = DroneClient(host, port, token)
-        dc.start()
-        sleep(20.0)
+    dc = DroneClient(host, port, token)
+    dc.start()
+    
