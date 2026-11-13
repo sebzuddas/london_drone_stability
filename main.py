@@ -71,9 +71,7 @@ def main():
               )
     np.save("/Users/sebastianozuddas/Programming/london_drone_stability/data/model_coefficients.npy", model.coefficients())
     
-
-    
-    print(inputs.shape[0])  
+    # print(inputs.shape[0])  
     
     t=np.arange(0, inputs.shape[0], 1)
     u=np.ones((inputs.shape[0], 3))  # constant input for both input_1 and input_2
@@ -87,26 +85,33 @@ def main():
     # plot results 
     # sim_test_df = pd.DataFrame(sim_test)    
     # plot_data(sim_test_df)
-        
-    coeffs = np.load("/Users/sebastianozuddas/Programming/london_drone_stability/data/model_coefficients.npy")
 
+    coeffs = np.load("/Users/sebastianozuddas/Programming/london_drone_stability/data/saved data/v2model_coefficients.npy")
     
+
     n = coeffs.shape[0] # number of states nxn
     n_dash = coeffs.shape[1]
     m = u.shape[1] # number of inputs nxp
     
     ############################################# CHECK
-    states = model.coefficients()[:, :3]
-    inputs = model.coefficients()[:, 3:]
+    # states = model.coefficients()[:, :3]
+    # inputs = model.coefficients()[:, 3:]
+    states = coeffs[:, :3]
+    inputs = coeffs[:, 3:]
 
     print('Coefficients: ', coeffs)
     print('States: ', n, n_dash,'\nInputs:', m)
-    print(model.coefficients())
+    
 
     #############################################
 
     A = states
     B = inputs
+    
+    # # Very simple, linear model
+    # A = np.identity(3)*2 
+    # B = np.identity(3)
+
     C = np.identity(3) # Output matrix
     p = C.shape[0] # 
     q = 3
@@ -114,8 +119,8 @@ def main():
     D = np.zeros((p, q))
     
     sysc = ct.matlab.ss(A, B, C, D)
-    sysd = ct.matlab.c2d(sysc, dt)
-    A, BE, C, D = ct.matlab.ssdata(sysd)
+    sysd = ct.matlab.c2d(sysc, 0.01)
+    A, B, C, D = ct.matlab.ssdata(sysd)
 
 
     ############################## TUNING PARAMS
@@ -123,22 +128,26 @@ def main():
     [   
         [0.01, 0, 0],   # x
         [0, 0.01, 0],   # y
-        [0, 0, 0.01]   # z
+        [0, 0, 10000]   # z
     ]) #State cost matrix
 
     R = np.array(
     [
-        [0.1, 0, 0], #throttle
+        [100, 0, 0], #throttle
         [0, 1, 0], #roll
         [0, 0, 1]  #pitch
     ]) #Input cost matrix
     
-    N = 7 # prediction horizon
+    N = 15 # prediction horizon
     
     ############################## 
 
     # K_inf = ct.dlqr(A, B, Q, R)
-    K_2 = -1 * ct.place(A, B,[0.01, 0, 0])
+    # print(np.linalg.matrix_rank(B))
+    
+    K_2 = -1 * ct.place(A, B,[0.3, 0.2, 0.1])    
+    # exit()
+
 
     # print(K_inf)
     # print(K_2)
@@ -219,9 +228,6 @@ def main():
                 [1], #z
                 [25] ])
 
-
-
-
     Pc, qc, Sc = constraint_mats_2(F, G, Pu=Pu, qu=qu, Px=Px, qx=qx)
     # print(Pc, qc, Sc)
 
@@ -235,7 +241,7 @@ def main():
                    [0],
                    [0]]) # system inputs
 
-    timesteps = 150
+    timesteps = 150000
     k = 0
     x = x0
 
@@ -254,7 +260,7 @@ def main():
 
         try:
 
-            a = L @ (x - x_ref)            
+            a = L @ (x_ref - x)            
             PcT = -Pc.T
             b = -(qc + Sc @ x)  # Inequality constraint vector, note the sign change
             a = a.flatten()
@@ -268,16 +274,16 @@ def main():
             print(uopt)
 
             # print(d)
-            exit()
+            # exit()
 
             x = A @ x + B @ (uopt) # adding in disturbance, such a model assumes B=E, and this may not be needed. 
             y = C @ x # no Du term
 
-            print(f'Iteration: {k}\n')
-            print(f'A: {A}\n')
-            print(f'x: {x}\n')
-            print(f'B: {B}\n')
-            print(f'uopt: {uopt}\n')
+            # print(f'Iteration: {k}\n')
+            # print(f'A: {A}\n')
+            # print(f'x: {x}\n')
+            # print(f'B: {B}\n')
+            # print(f'uopt: {uopt}\n')
 
             k += 1
             
@@ -305,14 +311,10 @@ def main():
 
     print(timesteps)
 
-    xs = np.array(xs)
-    us = np.array(us)
-    ys = np.array(ys)
     
-    
-    xs = np.array(xs).squeeze(-1)  # shape: (151, 3)
-    us = np.array(us).squeeze(-1)
-    ys = np.array(ys).squeeze(-1)
+    xs = np.array(xs).squeeze()  # shape: (151, 3)
+    us = np.array(us).squeeze()
+    ys = np.array(ys).squeeze()
 
     # results = pd.DataFrame(xs)
 
@@ -367,14 +369,9 @@ def plot_data(data, title="3D Line Plot"):
     fig = px.line_3d(df, x='X', y='Y', z='Z', title=title)
     fig.show()
 
-
-
 def loop():
     # The control loop 
     pass
-
-
-
 
 def spectral_radius(A:np.array, B:np.array, KN:np.array):
      ### Calculating the stability of A+B@KN ###

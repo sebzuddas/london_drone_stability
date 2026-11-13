@@ -101,14 +101,14 @@ class DroneClient:
         ############################## TUNING PARAMS
         Q = np.array(
         [   
-            [0.01, 0, 0],   # x
-            [0, 0.01, 0],   # y
-            [0, 0, 0.01]   # z
+            [100, 0, 0],   # x
+            [0, 10, 0],   # y
+            [0, 0, 0.0001]   # z
         ]) #State cost matrix
 
         R = np.array(
         [
-            [0.1, 0, 0], #throttle
+            [0.000000001, 0, 0], #throttle
             [0, 1, 0], #roll
             [0, 0, 1]  #pitch
         ]) #Input cost matrix
@@ -134,7 +134,7 @@ class DroneClient:
         except Exception as e:
             print(f'An exception was raised:\n{e}')
             
-            print(f'\nIs Q actually symmetric? {check_symmetric(Q_dlyap)}')
+            print(f'\nIs Q actually symmetric? {self.check_symmetric(Q_dlyap)}')
 
             print(f'\nA_dlyap: \n{A_dlyap}\n Q_dlyap: \n{Q_dlyap}')
             
@@ -198,9 +198,9 @@ class DroneClient:
 
     def control_loop(self):
         """Controls the drone until crash, success, or some other failure"""
-        iterations = 0
-        while iterations <= self.dt * self.time_length:
-        # while self.simulation_state != SimulationState.ENDED:
+
+        
+        while self.simulation_state != SimulationState.ENDED:
             result = self.receive()
 
             if self.simulation_state == SimulationState.INIT:
@@ -217,15 +217,12 @@ class DroneClient:
                         [mid_z]])  # example reference
 
                     # print("Goal:", result.start.goal, "\nBoundary:", result.start.boundary)
-                        
-                    # print("Goal region: ", self.goal_region)
-                
+                                        
                     # print("Start:", result.start.drone_location.x, result.start.drone_location.y, result.start.drone_location.z)
                     
                     self.position = result.start.drone_location 
 
                     self.simulation_state = SimulationState.STARTED
-                    iterations+=1
                     
                     continue
                 else:
@@ -243,58 +240,45 @@ class DroneClient:
             ############################ Update - pass into PID loop ######################################
             if result.WhichOneof("data") == "update":
                 self.position = result.update.drone_location
-
-                # print(f"Position: ", self.position.x, self.position.y, self.position.z)
-                self.x = np.array(
-                        [[self.position.x], 
-                        [self.position.y], 
-                        [self.position.z]])
+                
                 # Run PID loop
-                self.control_drone(iterations)
-                iterations+=1
+                self.control_drone()
 
-
-    def mpc_loop(self):
+    def mpc_loop(self, x):
         
-
-        a = self.L @ (self.x_ref - self.x)#TODO: check        
+        a = self.L @ (self.x_ref - x)#TODO: check        
         PcT = -self.Pc.T
-        b = -(self.qc + self.Sc @ self.x)  # Inequality constraint vector, note the sign change
+        b = -(self.qc + self.Sc @ x)  # Inequality constraint vector, note the sign change
         a = a.flatten()
         b = b.flatten()
 
         Uopt = quadprog.solve_qp(self.H, a, PcT, b) # calculate the optimal control sequence, considering input constraints
         # print(Uopt[0])
         Uopt = Uopt[0]
+        Uopt = np.ceil(Uopt)#.astype(np.int32)
         Uopt = Uopt.astype(np.int32)
 
         uopt = Uopt[:self.m].reshape(-1, 1)  # Ensure uopt is a column vector
-        # self.x = self.A @ self.x + self.B @ (uopt)
+        # x = self.A @ self.x + self.B @ (uopt)
         
         # y = self.C @ x 
 
         return uopt
 
-    def control_drone(self, iterations):
+    def control_drone(self):
         # print(f"Start of control_drone. Position: ", self.position.x, self.position.y, self.position.z)
-
-        # throttle = int(50*math.sin(0.5*iterations)+50) # if self.position.z < self.goal_region.maximal_point.z else 0
-        # pitch = int(math.cos(0.5*iterations)*45)
-        # roll = int(math.sin(0.5*iterations)*45)
-
-        # print("Requesting control input of:")
-        # print(f"{throttle=}")
-        # print(f"{pitch=}")
-        # print(f"{roll=}")
         
+        x = np.array([[self.position.x], 
+                      [self.position.y], 
+                      [self.position.z]])
 
-        uopt = self.mpc_loop()
-        
+        uopt = self.mpc_loop(x)
+
         throttle=uopt[0][0]
         pitch=uopt[1][0]
         roll=uopt[2][0]
         #print(throttle, pitch, roll)
-        print("Input:",uopt, "\nStates:",self.x, "\nReference:",self.x_ref, "\nDifference:", self.x_ref - self.x)
+        print("Input:",uopt, "\nStates:",x, "\nReference:",self.x_ref, "\nDifference:", self.x_ref - x)
 
         control = pb2.DroneClientMsg(
             throttle=throttle,
@@ -303,7 +287,7 @@ class DroneClient:
         )
         self.send_queue.put(control)
 
-        self.history.append((self.position.x, self.position.y, self.position.z ,throttle, roll, pitch))
+        # self.history.append((self.position.x, self.position.y, self.position.z ,throttle, roll, pitch))
 
 
     def spectral_radius(self, A:np.array, B:np.array, KN:np.array):
