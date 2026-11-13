@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Self-Tuning Drone MPC</title>
+  <meta name="description" content="A drone that re-learns its own dynamics after every flight: PySINDy system identification feeding a model predictive controller. Interactive 3D demo with wind.">
+  <meta name="theme-color" content="#0b0f14">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke='%23f5a524' stroke-width='3'%3E%3Ccircle cx='7' cy='7' r='4.5'/%3E%3Ccircle cx='25' cy='7' r='4.5'/%3E%3Ccircle cx='7' cy='25' r='4.5'/%3E%3Ccircle cx='25' cy='25' r='4.5'/%3E%3Cpath d='M10 10l12 12M22 10L10 22'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  } }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6"><circle cx="7" cy="7" r="4.5"/><circle cx="25" cy="7" r="4.5"/><circle cx="7" cy="25" r="4.5"/><circle cx="25" cy="25" r="4.5"/><path d="M10 10l12 12M22 10L10 22"/></g></svg>
+      <span>Self-tuning drone MPC</span>
+    </a>
+    <nav>
+      <a href="#demo">Demo</a>
+      <a href="#how">How it works</a>
+      <a href="https://github.com/sebzuddas/london_drone_stability" class="gh">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="intro">
+      <p class="eyebrow">Hackathon project · London · May 2025</p>
+      <h1>A drone that re-learns its own dynamics after every flight</h1>
+      <p class="lede">The flight controller is a <strong>model predictive controller</strong>. Its model isn't hand-derived; it's
+        <strong>identified from the drone's own flight logs with PySINDy</strong>. That identification runs again after every
+        flight, so as motors wear and sensors drift, the controller's picture of the drone moves with them.</p>
+    </section>
+
+    <!-- ===================================================== DEMO -->
+    <section id="demo" class="demo" aria-label="Interactive simulation">
+      <div class="viewport">
+        <canvas id="scene" aria-label="3D view of the drone, its target and the wind"></canvas>
+        <div class="hud hud-tl">
+          <div class="hud-row"><span class="k">Model</span><span id="hudModel" class="v">v1</span></div>
+          <div class="hud-row"><span class="k">Flights</span><span id="hudFlights" class="v">0</span></div>
+          <div class="hud-row"><span class="k">To target</span><span id="hudErr" class="v">–</span></div>
+          <div class="hud-row"><span class="k">Wind</span><span id="hudWind" class="v">–</span></div>
+        </div>
+        <div class="hud hud-tr legend">
+          <span><i class="sw sw-target"></i>Target</span>
+          <span><i class="sw sw-pred"></i>MPC plan</span>
+          <span><i class="sw sw-trail"></i>Flown path</span>
+        </div>
+        <div class="hud hud-bl" id="hint">Tap the ground to send the drone there · drag to orbit</div>
+        <div class="speed" role="group" aria-label="Simulation speed">
+          <button data-speed="1" class="on">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button>
+        </div>
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+        <div id="loading" class="loading">Calibration flight: identifying the drone…</div>
+      </div>
+
+      <aside class="panel">
+        <div class="group">
+          <h3>Target point</h3>
+          <form id="targetForm" class="xyz" autocomplete="off">
+            <label>X <input id="tx" type="number" step="0.5" min="-20" max="20" value="10" inputmode="decimal"></label>
+            <label>Y <input id="ty" type="number" step="0.5" min="-20" max="20" value="6" inputmode="decimal"></label>
+            <label>Z <input id="tz" type="number" step="0.5" min="1" max="18" value="8" inputmode="decimal"></label>
+            <button type="submit" class="primary">Fly</button>
+          </form>
+          <label class="toggle"><input id="tour" type="checkbox" checked><span>Random waypoint tour</span></label>
+          <p class="note">Arena is 40 × 40 × 18 m. Tapping the ground sets X/Y and keeps your Z.</p>
+        </div>
+
+        <div class="group">
+          <h3>Wind</h3>
+          <label class="slider"><span>Mean speed <output id="windSpeedOut">4 m/s</output></span>
+            <input id="windSpeed" type="range" min="0" max="10" step="0.5" value="4"></label>
+          <label class="slider"><span>Blowing towards <output id="windDirOut">70°</output></span>
+            <input id="windDir" type="range" min="0" max="355" step="5" value="70"></label>
+          <label class="slider"><span>Gustiness <output id="gustOut">0.5</output></span>
+            <input id="gust" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+        </div>
+
+        <div class="group">
+          <h3>Learning loop</h3>
+          <label class="toggle"><input id="adaptive" type="checkbox" checked><span>Refit model with SINDy after each flight</span></label>
+          <label class="toggle"><input id="offsetFree" type="checkbox" checked><span>Disturbance estimator (offset-free MPC)</span></label>
+          <label class="slider"><span>Wear per flight <output id="driftOut">1.0×</output></span>
+            <input id="drift" type="range" min="0" max="3" step="0.25" value="1"></label>
+          <button id="reset" class="ghost">Reset drone &amp; recalibrate</button>
+        </div>
+
+        <div class="group">
+          <h3>Controls applied</h3>
+          <div class="bars">
+            <div class="bar"><span>Throttle</span><div class="track"><i id="barT"></i></div><output id="valT">0%</output></div>
+            <div class="bar"><span>Roll</span><div class="track centered"><i id="barR"></i></div><output id="valR">0°</output></div>
+            <div class="bar"><span>Pitch</span><div class="track centered"><i id="barP"></i></div><output id="valP">0°</output></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="cards" aria-label="Live model">
+      <article class="card">
+        <header>
+          <h3>Identified dynamics <span class="muted" id="coefVersion">model v1</span></h3>
+          <p class="muted">Acceleration rows of Ξ in <code>ẋ = Ξ·θ(x,u)</code>. Cells flash when a refit changes them.</p>
+        </header>
+        <div class="table-wrap"><table id="coefTable" class="coef"></table></div>
+        <ul class="reading">
+          <li><b>v̇z · 1 ≈ −9.8</b>: gravity. Nobody told the model; it found it in the logs.</li>
+          <li><b>v̇z · throttle</b>: thrust per % throttle. It shrinks as the motors wear, and the hover throttle the MPC plans around shifts with it.</li>
+          <li><b>v̇x · pitch, v̇y · roll</b>: tilting the thrust vector, about g·π/180 ≈ 0.17 per degree.</li>
+          <li><b>v̇x · 1, v̇y · 1</b>: mean wind and IMU bias, which look the same to the drone: a constant push.</li>
+          <li><b>diagonal velocity terms</b>: aerodynamic drag.</li>
+        </ul>
+        <p class="note">Position rows (ẋ = v) are identified too and come out as the identity. They're hidden here.</p>
+      </article>
+
+      <article class="card">
+        <header>
+          <h3>Is the model keeping up with the drone?</h3>
+          <p class="muted">The hidden "real" drone vs. what the current model believes.</p>
+        </header>
+        <table class="truth">
+          <thead><tr><th></th><th>Real drone</th><th>Model</th></tr></thead>
+          <tbody>
+            <tr><td>Hover throttle</td><td id="truHover">–</td><td id="modHover">–</td></tr>
+            <tr><td>Thrust per % throttle</td><td id="truGain">–</td><td id="modGain">–</td></tr>
+            <tr><td>IMU roll / pitch bias</td><td id="truBias">–</td><td class="muted">absorbed in bias term</td></tr>
+          </tbody>
+        </table>
+        <div class="chart-head">
+          <span>Model prediction error per flight</span>
+          <span class="chart-legend"><i class="sw sw-adapt"></i>refitting <i class="sw sw-frozen"></i>frozen</span>
+        </div>
+        <canvas id="errChart" class="chart" height="140" aria-label="Bar chart of model prediction error for each flight"></canvas>
+        <p class="note">RMS error (m/s²) of the model's predicted acceleration on each flight's log. Turn refitting off and watch it climb as the drone wears.</p>
+      </article>
+    </section>
+
+    <!-- ===================================================== EXPLAINER -->
+    <section id="how" class="explainer">
+      <h2>How it works</h2>
+
+      <div class="prose">
+        <h3>The challenge</h3>
+        <p>The hackathon simulator streamed the drone's position at 10&nbsp;Hz over gRPC and accepted three integer commands back:
+          <code>throttle</code>, <code>roll</code> and <code>pitch</code>. The goal was to fly into a target region inside a bounded
+          arena without crashing. Nobody tells you the drone's equations of motion, so you either hand-tune a PID controller or you learn a model.</p>
+
+        <h3>The loop</h3>
+        <p>Every flight produces a log of states and inputs. After the flight, PySINDy fits a sparse model of the dynamics from that
+          log. The MPC loads the new model for the next flight. Repeat.</p>
+      </div>
+
+      <figure class="loop-figure">
+        <svg viewBox="0 0 720 300" role="img" aria-labelledby="loopTitle">
+          <title id="loopTitle">Fly with MPC, log states and inputs, identify the model with PySINDy, update the MPC, repeat</title>
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="arrowhead"/></marker>
+          </defs>
+          <g class="node"><rect x="20" y="40" width="200" height="86" rx="12"/><text x="120" y="76" class="t">1 · Fly</text><text x="120" y="100" class="s">MPC at 10 Hz on model vₖ</text></g>
+          <g class="node"><rect x="500" y="40" width="200" height="86" rx="12"/><text x="600" y="76" class="t">2 · Log</text><text x="600" y="100" class="s">positions + throttle/roll/pitch</text></g>
+          <g class="node accent"><rect x="500" y="180" width="200" height="86" rx="12"/><text x="600" y="216" class="t">3 · Identify</text><text x="600" y="240" class="s">PySINDy → sparse Ξ</text></g>
+          <g class="node"><rect x="20" y="180" width="200" height="86" rx="12"/><text x="120" y="216" class="t">4 · Update</text><text x="120" y="240" class="s">A, B → prediction matrices</text></g>
+          <path d="M224 83H494" class="edge" marker-end="url(#arr)"/>
+          <path d="M600 130V174" class="edge" marker-end="url(#arr)"/>
+          <path d="M496 223H226" class="edge" marker-end="url(#arr)"/>
+          <path d="M120 176V132" class="edge" marker-end="url(#arr)"/>
+          <text x="360" y="72" class="lbl">flight ends</text>
+          <text x="360" y="212" class="lbl">model vₖ₊₁</text>
+          <g class="drift"><path d="M360 128c-30 10-30 36 0 46" /><text x="372" y="156">motors wear, IMU drifts</text></g>
+        </svg>
+      </figure>
+
+      <div class="prose">
+        <h3>Step 1 · System identification with SINDy</h3>
+        <p><a href="https://pysindy.readthedocs.io/">SINDy</a> (Sparse Identification of Nonlinear Dynamics) assumes the dynamics are
+          a sparse combination of candidate functions of the state and input:</p>
+        <p class="eq">ẋ = Ξ<sup>⊤</sup> θ(x, u)</p>
+        <p>θ is a library of candidate terms and Ξ the coefficients. Derivatives are estimated from the logged positions by finite differences,
+          then <em>sequentially thresholded least squares</em> (STLSQ) repeatedly solves the regression and zeroes out small
+          coefficients, so you're left with only the terms the data actually supports. With an identity library, the result is a
+          linear state-space model you can hand straight to a controller:</p>
+        <p class="eq">ẋ = A x + B u &nbsp;&nbsp;→&nbsp;&nbsp; x<sub>k+1</sub> = A<sub>d</sub> x<sub>k</sub> + B<sub>d</sub> u<sub>k</sub></p>
+        <p>The fitted continuous model is discretised at the 100&nbsp;ms control period (zero-order hold) before going into the MPC.</p>
+
+        <h3>Step 2 · Model predictive control</h3>
+        <p>At every tick the MPC predicts the next N steps with the identified model, then solves a quadratic program for the input
+          sequence that minimises tracking error and control effort while respecting actuator limits:</p>
+        <p class="eq">min<sub>u</sub> Σ<sub>k</sub> ‖x<sub>k</sub> − r‖²<sub>Q</sub> + ‖u<sub>k</sub> − u<sub>ss</sub>‖²<sub>R</sub> + ‖x<sub>N</sub> − r‖²<sub>P</sub><br>
+          s.t. &nbsp; x<sub>k+1</sub> = A<sub>d</sub>x<sub>k</sub> + B<sub>d</sub>u<sub>k</sub>, &nbsp; u<sub>min</sub> ≤ u<sub>k</sub> ≤ u<sub>max</sub></p>
+        <p>Only the first input is applied; next tick it re-plans from the new measurement (receding horizon). The cyan line in the demo
+          is that plan. Because the prediction comes from the identified model, <strong>the controller is only as good as the model</strong>.</p>
+
+        <h3>Step 3 · Why refit after every flight</h3>
+        <p>Real drones don't stay the same. Batteries and motors lose thrust, the IMU's notion of "level" creeps, props get chipped.
+          A model identified once at the factory slowly becomes wrong, and an MPC with a wrong model plans with the wrong gains and
+          the wrong hover point. Re-running identification on every flight log keeps the model matched to the drone you actually have,
+          with no manual retuning.</p>
+        <p>In the demo the hidden "real" drone loses about 3.5% of its thrust per flight and its IMU picks up roll/pitch bias. Try this:</p>
+        <ol>
+          <li>Turn off the <em>disturbance estimator</em> so the MPC relies purely on its model.</li>
+          <li>Turn off <em>refitting</em> and let the tour run for a few flights. The drone starts settling short of its targets and the error bars grow.</li>
+          <li>Turn refitting back on. After a flight or two the model catches up and the drone lands on target again.</li>
+        </ol>
+
+        <h3>Hackathon code vs. this demo</h3>
+        <p>The demo re-implements the same pipeline in plain JavaScript so it can run as a static page. Some differences:</p>
+        <ul>
+          <li><strong>State.</strong> The hackathon model used position only (3 states, ẋ = Ax + Bu straight from the server's position stream).
+            The demo adds velocity (6 states, still estimated from positions) so that wind and thrust show up as accelerations.</li>
+          <li><strong>Library.</strong> A constant term is added (it absorbs gravity, mean wind and IMU bias), and a coefficient mask encodes
+            two physical priors: no dependence on absolute position, and drag only on each axis' own velocity.</li>
+          <li><strong>Safe refits.</strong> Each refit is regularised towards the previous model and only swapped in if it predicts a
+            held-out slice of the flight better. Closed-loop data is poorly excited, and this stops one bad flight from producing a bad model.</li>
+          <li><strong>Solver.</strong> The Python version builds condensed prediction and constraint matrices and solves with <code>quadprog</code>
+            (including state constraints and a Lyapunov terminal cost). The browser version uses an accelerated projected-gradient solver with input bounds.</li>
+          <li><strong>Wind.</strong> The demo adds an offset-free disturbance estimator, so gusts are rejected even before the model has learned the mean wind.</li>
+        </ul>
+        <p>The browser core runs headless too: <code>node docs/test/core.test.mjs</code> checks that identification recovers the true gains and
+          that refitting beats a frozen model under drift.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Built at a London hackathon, May 2025 · <a href="https://github.com/sebzuddas/london_drone_stability">Source on GitHub</a></span>
+    <span class="muted">Python: PySINDy · python-control · quadprog · gRPC &nbsp;|&nbsp; Web: three.js</span>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
