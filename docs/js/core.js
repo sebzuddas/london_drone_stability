@@ -74,12 +74,20 @@ export class Drone {
     this.throttle = 0;
     if (resetWear) this.wear = { thrust: 1, rollBias: 0, pitchBias: 0, flights: 0 };
     this.windGust = [0, 0, 0];
+    this.battery = 1;                    // state of charge, 0..1 (swapped on the pad)
   }
+  // Thrust available relative to a new drone on a full battery: motor wear × battery voltage sag.
+  thrustFactor() { return this.wear.thrust * (0.92 + 0.08 * this.battery); }
+  // Thrust-to-weight ratio at 100% throttle. Below ~1.15 the drone can no longer climb while manoeuvring.
+  thrustToWeight() { return 2 * this.thrustFactor(); }
   // One flight's worth of ageing: motors/battery lose thrust, the IMU's level reference creeps.
   age(rate) {
     const w = this.wear; w.flights++;
-    w.thrust *= 1 - 0.035 * rate;
-    w.rollBias += 0.7 * rate; w.pitchBias -= 0.45 * rate;
+    // Wear levels off instead of compounding forever: thrust decays towards 72% (hover ≈ 70% throttle, still flyable
+    // when tilted), IMU bias towards about +6° / -4°. Each flight closes a fraction of the remaining gap.
+    const k = Math.min(1, 0.12 * rate);
+    w.thrust = 0.72 + (w.thrust - 0.72) * (1 - k);
+    w.rollBias += (6 - w.rollBias) * k; w.pitchBias += (-4 - w.pitchBias) * k;
   }
   wind(windCfg) {
     const rad = windCfg.dir * Math.PI / 180;
@@ -103,7 +111,9 @@ export class Drone {
       this.att[1] += ((u[2] + w.pitchBias) - this.att[1]) / tauAtt * h;
       this.throttle += (u[0] - this.throttle) / 0.05 * h;
       const phi = this.att[0] * Math.PI / 180, th = this.att[1] * Math.PI / 180;
-      const a = kT * w.thrust * Math.max(0, this.throttle);
+      const a = kT * this.thrustFactor() * Math.max(0, this.throttle);
+      // battery drain grows with throttle (≈1%/s in hover); it keeps a small reserve so sag never hits zero thrust
+      if (this.throttle > 1) this.battery = Math.max(0, this.battery - h * (0.003 + 0.017 * (this.throttle / 100) ** 1.5));
       const zb = [Math.sin(th) * Math.cos(phi), -Math.sin(phi), Math.cos(th) * Math.cos(phi)];
       const acc = [0, 1, 2].map(i => a * zb[i] - (i === 2 ? G : 0) - drag * (this.v[i] - wv[i]));
       for (let i = 0; i < 3; i++) { this.v[i] += acc[i] * h; this.p[i] += this.v[i] * h; }
@@ -374,6 +384,8 @@ export class FlightSystem {
     this.wind = { speed: 4, dir: 70, gust: 0.5 };
     this.adaptive = true; this.driftRate = 1; this.dither = true;
     this.ref = [0, 0, 6];
+    this.mode = 'mission'; this.home = [0, 0]; this.rtbLevel = 0.25; this.swapTime = 3;   // RTB + battery swap
+    this.pendingRef = null; this.missionRef = null;
     this.flightLog = []; this.history = [];       // history: per-flight summaries
     this.window = [];                              // rolling window of recent flight logs used for refits
     this.modelVersion = 0; this.t = 0;
@@ -401,11 +413,16 @@ export class FlightSystem {
     this.mpc.setModel(Xi); this.modelVersion++;
     this.emit('model', { Xi, version: this.modelVersion, ...info });
   }
+  // Returns 'set', or 'queued' while the drone is returning to base / swapping its battery.
   setTarget(ref) {
-    this.ref = [Math.max(-ARENA.half, Math.min(ARENA.half, ref[0])), Math.max(-ARENA.half, Math.min(ARENA.half, ref[1])), Math.max(1, Math.min(ARENA.zMax, ref[2]))];
-    this.settled = 0; this.flightDone = false;
+    const r = [Math.max(-ARENA.half, Math.min(ARENA.half, ref[0])), Math.max(-ARENA.half, Math.min(ARENA.half, ref[1])), Math.max(1, Math.min(ARENA.zMax, ref[2]))];
+    if (this.mode !== 'mission') { this.pendingRef = r; return 'queued'; }
+    this.ref = r; this.settled = 0; this.flightDone = false;
+    return 'set';
   }
+  setMode(mode, info = {}) { this.mode = mode; this.emit('mode', { mode, battery: this.drone.battery, ...info }); }
   tick() {
+    if (this.mode === 'charging') return this.tickOnPad();
     const pm = this.drone.measure();
     const xPrev = this.est.x ? [...this.est.x] : null;
     const x = [...this.est.update(pm)];
@@ -415,14 +432,48 @@ export class FlightSystem {
     this.flightLog.push({ p: pm, u: ua });
     this.drone.step(ua, this.wind);
     this.t += DT;
-    // flight bookkeeping: a flight ends once the drone has settled on its target
     const err = Math.hypot(...this.ref.map((r, i) => r - x[i])), spd = Math.hypot(x[3], x[4], x[5]);
-    if (!this.flightDone) {
-      this.settled = err < 0.6 && spd < 0.5 ? (this.settled || 0) + 1 : 0;
-      if (this.settled > 15 && this.flightLog.length > 60) { this.flightDone = true; this.endFlight(); }
-      else if (this.flightLog.length > 900) this.endFlight();
+    if (this.mode === 'mission') {
+      // flight bookkeeping: a flight ends once the drone has settled on its target
+      if (!this.flightDone) {
+        this.settled = err < 0.6 && spd < 0.5 ? (this.settled || 0) + 1 : 0;
+        if (this.settled > 15 && this.flightLog.length > 60) { this.flightDone = true; this.endFlight(); }
+        else if (this.flightLog.length > 900) this.endFlight();
+      }
+      // low battery → return to base: climb/hold at a safe altitude over the pad first
+      if (this.drone.battery < this.rtbLevel) {
+        this.missionRef = this.flightDone ? null : [...this.ref];
+        this.ref = [this.home[0], this.home[1], Math.max(4, Math.min(10, x[2]))];
+        this.setMode('rtb');
+      }
+    } else if (this.mode === 'rtb') {
+      if (Math.hypot(x[0] - this.home[0], x[1] - this.home[1]) < 0.8 && spd < 0.8) this.setMode('landing');
+    } else if (this.mode === 'landing') {
+      // descend along a gentle glide slope, aiming slightly below the pad so it actually touches down
+      this.ref = [this.home[0], this.home[1], Math.max(-0.3, this.ref[2] - 0.9 * DT)];
+      if (this.drone.p[2] <= 0.02 && this.ref[2] < 0.3) {
+        this.endFlight();                      // landing ends a flight → SINDy refit on its log
+        this.chargeT = 0; this.setMode('charging');
+      }
     }
-    return { x, u: ua, traj, err, wind: this.drone.wind(this.wind) };
+    return { x, u: ua, traj, err, wind: this.drone.wind(this.wind), mode: this.mode, battery: this.drone.battery };
+  }
+  tickOnPad() {
+    // motors off on the pad while the battery is swapped
+    this.chargeT += DT; this.t += DT;
+    const x = [...this.est.update(this.drone.measure(0.002))];
+    this.mpc.uPrev = [0, 0, 0];
+    if (this.chargeT >= this.swapTime) {
+      this.drone.battery = 1;
+      this.mpc.U = null; this.mpc.d.fill(0); this.est = new Estimator();
+      this.mode = 'mission';
+      const next = this.pendingRef ?? this.missionRef;
+      this.pendingRef = null; this.missionRef = null;
+      this.ref = next ?? [this.home[0], this.home[1], 5];
+      this.settled = 0; this.flightDone = !next;   // with nothing queued, hover over the pad and let the UI pick
+      this.setMode('mission', { swapped: true, resumed: !!next });
+    }
+    return { x, u: [0, 0, 0], traj: [], err: Math.hypot(...this.ref.map((r, i) => r - x[i])), wind: this.drone.wind(this.wind), mode: this.mode, battery: this.drone.battery };
   }
   endFlight() {
     const log = this.flightLog; this.flightLog = [];
@@ -451,6 +502,7 @@ export class FlightSystem {
   }
   resetDrone() {
     this.drone = new Drone(); this.est = new Estimator(); this.mpc = new MPC();
+    this.mode = 'mission'; this.pendingRef = null; this.missionRef = null;
     this.mpc.offsetFree = this.offsetFree ?? true;
     this.flightLog = []; this.history = []; this.window = []; this.modelVersion = 0;
     this.calibrate();

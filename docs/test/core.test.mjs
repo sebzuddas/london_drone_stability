@@ -31,7 +31,8 @@ const run = adaptive => {
   sys.on('flight', f => errs.push(f.before));
   for (const t of targets) {
     sys.setTarget(t);
-    for (let k = 0; k < 450 && !sys.flightDone; k++) sys.tick();
+    // 45 s of mission time per waypoint; time spent returning to base / swapping the battery doesn't count
+    for (let k = 0, mission = 0; k < 1200 && mission < 450 && !sys.flightDone; k++) { sys.tick(); if (sys.mode === 'mission') mission++; }
     if (sys.flightDone) settled++;
   }
   return { settled, errs };
@@ -42,6 +43,30 @@ console.log(`\nadaptive: settled ${adaptive.settled}/${targets.length}, model er
 console.log(`frozen:   settled ${frozen.settled}/${targets.length}, model error per flight ${frozen.errs.map(v => v.toFixed(2)).join(' ')}`);
 check(adaptive.settled === targets.length, 'adaptive MPC settles on every waypoint in gusty wind');
 check(tail(adaptive.errs) < 0.7 * tail(frozen.errs), 'refitting keeps model error well below the frozen model after drift');
+
+// --- 4. low battery → return to base, land, swap, resume the queued target
+{
+  const sys = new FlightSystem();
+  sys.wind = { speed: 4, dir: 70, gust: 0.5 };
+  const modes = []; let landedAt = null, minBattery = 1, flightsAtLanding = 0;
+  sys.on('mode', m => {
+    modes.push(m.mode);
+    if (m.mode === 'charging') { landedAt = [...sys.drone.p]; flightsAtLanding = sys.drone.wear.flights; }
+  });
+  sys.setTarget([15, 12, 8]);
+  sys.drone.battery = 0.3;                       // start low so RTB comes quickly
+  let queued = null;
+  for (let k = 0; k < 2000 && !(modes.includes('mission') && modes.at(-1) === 'mission'); k++) {
+    const o = sys.tick(); minBattery = Math.min(minBattery, o.battery);
+    if (sys.mode === 'rtb' && !queued) queued = sys.setTarget([-10, 8, 6]);   // user taps while away
+  }
+  console.log(`\nRTB sequence: ${modes.join(' → ')}; landed at (${landedAt?.map(v => v.toFixed(2)).join(', ')}), min battery ${(minBattery * 100).toFixed(0)}%`);
+  check(modes.join(',') === 'rtb,landing,charging,mission', 'battery below threshold triggers RTB → landing → swap → mission');
+  check(landedAt && Math.hypot(landedAt[0], landedAt[1]) < 1.0 && landedAt[2] < 0.05, 'drone lands within 1 m of the home pad');
+  check(sys.drone.battery === 1 && minBattery > 0.05, 'battery swapped without running flat');
+  check(flightsAtLanding >= 1, 'landing ends a flight (so SINDy refits)');
+  check(queued === 'queued' && sys.ref.join() === '-10,8,6', 'target set during RTB is queued and flown after the swap');
+}
 
 if (failures.length) { console.error(`\n${failures.length} check(s) failed`); process.exit(1); }
 console.log('\nall checks passed');

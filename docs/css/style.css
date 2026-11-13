@@ -8,6 +8,7 @@
   --accent: #c77700;          /* target / amber */
   --accent-strong: #a36100;
   --cyan: #0e8fb3;            /* MPC plan */
+  --ok: #2f9e5b;
   --adapt: #0e8fb3;
   --frozen: #b24b3a;
   --pos: #0e8fb3;
@@ -22,14 +23,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0b0f14; --surface: #121821; --surface-2: #19212c; --border: #26303d;
     --text: #e8edf3; --muted: #93a0b0; --accent: #f5a524; --accent-strong: #ffb84d;
-    --cyan: #38c6f0; --adapt: #38c6f0; --frozen: #f0745f; --pos: #38c6f0; --neg: #f0745f;
+    --ok: #4cc38a; --cyan: #38c6f0; --adapt: #38c6f0; --frozen: #f0745f; --pos: #38c6f0; --neg: #f0745f;
     --shadow: none; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0b0f14; --surface: #121821; --surface-2: #19212c; --border: #26303d;
   --text: #e8edf3; --muted: #93a0b0; --accent: #f5a524; --accent-strong: #ffb84d;
-  --cyan: #38c6f0; --adapt: #38c6f0; --frozen: #f0745f; --pos: #38c6f0; --neg: #f0745f;
+  --ok: #4cc38a; --cyan: #38c6f0; --adapt: #38c6f0; --frozen: #f0745f; --pos: #38c6f0; --neg: #f0745f;
   --shadow: none; color-scheme: dark;
 }
 
@@ -157,6 +158,18 @@ button { font-family: var(--sans); }
 .track i { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--accent); border-radius: 4px; }
 .track.centered::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); }
 .track.centered i { background: var(--cyan); }
+
+.health { display: grid; gap: 9px; }
+.hrow { display: grid; grid-template-columns: 92px 1fr 52px; align-items: center; gap: 8px; font-size: 13px; }
+.hrow output { font: 12.5px var(--mono); text-align: right; color: var(--muted); }
+.hrow .track { overflow: visible; }
+.hrow .track i { background: var(--ok); transition: width .3s, background-color .3s; }
+.hrow .track i.warn { background: var(--accent); }
+.hrow .track i.bad { background: var(--frozen); }
+.hrow .track b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: .55; border-radius: 1px; }
+.hrow .tw-min { left: 57.5%; }
+.hud .mode.rtb, .hud .mode.landing { color: #f5a524; }
+.hud .mode.charging { color: #38c6f0; }
 
 /* ------------------------------------------------ cards */
 .cards { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; margin: 16px 0 0; }

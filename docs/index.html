@@ -46,6 +46,8 @@
         <canvas id="scene" aria-label="3D view of the drone, its target and the wind"></canvas>
         <div class="hud hud-tl">
           <div class="hud-row"><span class="k">Model</span><span id="hudModel" class="v">v1</span></div>
+          <div class="hud-row"><span class="k">Mode</span><span id="hudMode" class="v mode">Mission</span></div>
+          <div class="hud-row"><span class="k">Battery</span><span id="hudBatt" class="v">100%</span></div>
           <div class="hud-row"><span class="k">Flights</span><span id="hudFlights" class="v">0</span></div>
           <div class="hud-row"><span class="k">To target</span><span id="hudErr" class="v">–</span></div>
           <div class="hud-row"><span class="k">Wind</span><span id="hudWind" class="v">–</span></div>
@@ -93,6 +95,19 @@
           <label class="slider"><span>Wear per flight <output id="driftOut">1.0×</output></span>
             <input id="drift" type="range" min="0" max="3" step="0.25" value="1"></label>
           <button id="reset" class="ghost">Reset drone &amp; recalibrate</button>
+        </div>
+
+        <div class="group">
+          <h3>Drone health</h3>
+          <div class="health">
+            <div class="hrow"><span>Battery</span><div class="track" id="battTrack"><i id="barBatt"></i><b id="rtbMark" title="Return-to-base threshold"></b></div><output id="valBatt">100%</output></div>
+            <div class="hrow"><span>Motors</span><div class="track"><i id="barMotor"></i></div><output id="valMotor">100%</output></div>
+            <div class="hrow"><span>IMU drift</span><div class="track"><i id="barImu"></i></div><output id="valImu">0.0°</output></div>
+            <div class="hrow"><span>Thrust/weight</span><div class="track" id="twTrack"><i id="barTW"></i><b class="tw-min" title="Below about 1.15× the drone can't climb while manoeuvring"></b></div><output id="valTW">2.00×</output></div>
+          </div>
+          <label class="slider"><span>Return to base below <output id="rtbOut">25%</output></span>
+            <input id="rtb" type="range" min="20" max="50" step="5" value="25"></label>
+          <p class="note">Motors and IMU wear a little every flight and level off. The battery drains with throttle and sags thrust slightly as it empties; below the threshold the drone flies home, lands on the pad and swaps it.</p>
         </div>
 
         <div class="group">
@@ -205,7 +220,8 @@
           A model identified once at the factory slowly becomes wrong, and an MPC with a wrong model plans with the wrong gains and
           the wrong hover point. Re-running identification on every flight log keeps the model matched to the drone you actually have,
           with no manual retuning.</p>
-        <p>In the demo the hidden "real" drone loses about 3.5% of its thrust per flight and its IMU picks up roll/pitch bias. Try this:</p>
+        <p>In the demo the hidden "real" drone loses thrust with every flight (levelling off at about 72% of new) and its IMU picks up a few degrees of roll/pitch bias. Its battery also drains with throttle and sags thrust as it empties. Below the return-to-base threshold it flies home, lands on the
+          pad and swaps the battery, and that landing ends a flight like any other, so SINDy refits on it. The <em>Drone health</em> panel shows all three. Try this:</p>
         <ol>
           <li>Turn off the <em>disturbance estimator</em> so the MPC relies purely on its model.</li>
           <li>Turn off <em>refitting</em> and let the tour run for a few flights. The drone starts settling short of its targets and the error bars grow.</li>

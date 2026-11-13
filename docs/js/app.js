@@ -80,6 +80,16 @@ led.position.set(0.47, 0.05, 0); tilt.add(led);
 drone.scale.setScalar(1.7);
 scene.add(drone);
 
+// home pad at the origin: where the drone returns to swap its battery
+const padTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  g.strokeStyle = '#38c6f0'; g.lineWidth = 10; g.beginPath(); g.arc(128, 128, 112, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = '#38c6f0'; g.font = '700 150px IBM Plex Sans, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('H', 128, 138);
+  return new THREE.CanvasTexture(c);
+})();
+const pad = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: padTex, transparent: true, opacity: 0.75, depthWrite: false }));
+pad.rotation.x = -Math.PI / 2; pad.position.y = 0.025; scene.add(pad);
+
 const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 32), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45, depthWrite: false }));
 shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; scene.add(shadow);
 const plumbGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -141,8 +151,10 @@ function toast(html, ms = 3800) {
 }
 
 function setTarget(t, fromUser = false) {
-  sys.setTarget(t);
-  $('tx').value = +sys.ref[0].toFixed(1); $('ty').value = +sys.ref[1].toFixed(1); $('tz').value = +sys.ref[2].toFixed(1);
+  const res = sys.setTarget(t);
+  const shown = res === 'queued' ? sys.pendingRef : sys.ref;
+  $('tx').value = +shown[0].toFixed(1); $('ty').value = +shown[1].toFixed(1); $('tz').value = +shown[2].toFixed(1);
+  if (res === 'queued' && fromUser) toast('Returning to base. Target <b>queued</b> for after the battery swap.');
   if (fromUser && $('tour').checked) { $('tour').checked = false; clearTimeout(tourTimer); tourTimer = null; }
 }
 function randomTarget() {
@@ -173,6 +185,13 @@ function wireSystem() {
     toast(msg); renderTruth(); drawChart();
     $('hudFlights').textContent = f.flight;
   });
+  sys.on('mode', (m) => {
+    const label = { mission: 'Mission', rtb: 'Return to base', landing: 'Landing', charging: 'Swapping battery' }[m.mode];
+    $('hudMode').textContent = label; $('hudMode').className = `v mode ${m.mode}`;
+    if (m.mode === 'rtb') toast(`Battery at <b>${Math.round(m.battery * 100)}%</b>: returning to base.`);
+    if (m.mode === 'charging') setTimeout(() => toast('Landed on the pad. <b>Swapping battery</b>…'), 1200);
+    if (m.mode === 'mission' && m.swapped) toast(m.resumed ? 'Fresh battery. <b>Resuming</b> the mission.' : 'Fresh battery. Hovering over the pad, ready for a target.');
+  });
   sys.on('reset', () => { trailN = 0; renderTruth(); drawChart(); $('hudFlights').textContent = 0; });
 }
 
@@ -181,13 +200,15 @@ function applyControls() {
   sys.adaptive = $('adaptive').checked; sys.offsetFree = $('offsetFree').checked; sys.mpc.offsetFree = sys.offsetFree;
   if (!sys.offsetFree) sys.mpc.d.fill(0);
   sys.driftRate = +$('drift').value;
+  sys.rtbLevel = +$('rtb').value / 100; $('rtbOut').textContent = `${$('rtb').value}%`;
+  $('rtbMark').style.left = `${$('rtb').value}%`;
   $('windSpeedOut').textContent = `${sys.wind.speed} m/s`;
   $('windDirOut').textContent = `${sys.wind.dir}° ${compass(sys.wind.dir)}`;
   $('gustOut').textContent = sys.wind.gust.toFixed(2);
   $('driftOut').textContent = `${sys.driftRate.toFixed(2).replace(/0$/, '')}×`;
 }
 const compass = (d) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(d / 45) % 8];
-for (const id of ['windSpeed', 'windDir', 'gust', 'drift', 'adaptive', 'offsetFree']) $(id).addEventListener('input', applyControls);
+for (const id of ['windSpeed', 'windDir', 'gust', 'drift', 'adaptive', 'offsetFree', 'rtb']) $(id).addEventListener('input', applyControls);
 $('adaptive').addEventListener('change', (e) => toast(e.target.checked ? 'Refitting <b>on</b>: SINDy runs on every flight log.' : 'Refitting <b>off</b>: the model is frozen while the drone keeps ageing.'));
 $('offsetFree').addEventListener('change', (e) => toast(e.target.checked ? 'Disturbance estimator <b>on</b>.' : 'Disturbance estimator <b>off</b>: the MPC now relies purely on its identified model.'));
 $('reset').addEventListener('click', () => {
@@ -244,12 +265,25 @@ function renderModel(m, flash) {
 }
 function renderTruth() {
   if (!sys) return;
-  const w = sys.drone.wear, Xi = sys.mpc.Xi;
-  $('truHover').textContent = `${(50 / w.thrust).toFixed(1)}%`;
-  $('truGain').textContent = `${(9.81 / 50 * w.thrust).toFixed(3)} m/s²`;
+  const w = sys.drone.wear, Xi = sys.mpc.Xi, tf = sys.drone.thrustFactor();
+  $('truHover').textContent = `${(50 / tf).toFixed(1)}%`;
+  $('truGain').textContent = `${(9.81 / 50 * tf).toFixed(3)} m/s²`;
   $('modGain').textContent = `${Xi[5][7].toFixed(3)} m/s²`;
   $('modHover').textContent = `${Math.min(100, -Xi[5][0] / Xi[5][7]).toFixed(1)}%`;
   $('truBias').textContent = `${w.rollBias.toFixed(1)}° / ${w.pitchBias.toFixed(1)}°`;
+}
+function health(id, valId, frac, text, warnAt, badAt) {
+  const el = $(id); el.style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
+  el.className = frac <= badAt ? 'bad' : frac <= warnAt ? 'warn' : '';
+  $(valId).textContent = text;
+}
+function renderHealth() {
+  const d = sys.drone, w = d.wear, bias = Math.hypot(w.rollBias, w.pitchBias), tw = d.thrustToWeight();
+  health('barBatt', 'valBatt', d.battery, `${Math.round(d.battery * 100)}%`, 0.5, sys.rtbLevel);
+  health('barMotor', 'valMotor', w.thrust, `${Math.round(w.thrust * 100)}%`, 0.85, 0.75);
+  health('barImu', 'valImu', 1 - bias / 8, `${bias.toFixed(1)}°`, 0.6, 0.3);
+  health('barTW', 'valTW', tw / 2, `${tw.toFixed(2)}×`, 0.75, 0.62);
+  $('hudBatt').textContent = `${Math.round(d.battery * 100)}%`;
 }
 function drawChart() {
   const c = $('errChart'), g = c.getContext('2d'), dpr = Math.min(window.devicePixelRatio, 2);
@@ -305,7 +339,7 @@ function frame(now) {
     } else if (last) {
       const a = trailGeo.attributes.position.array; a.copyWithin(0, 3); toThree(sys.drone.p, v3); a.set([v3.x, v3.y, v3.z], (TRAIL_MAX - 1) * 3);
     }
-    if (sys.flightDone && $('tour').checked && !tourTimer) tourTimer = setTimeout(() => { tourTimer = null; if ($('tour').checked) randomTarget(); }, 1400 / speed);
+    if (sys.flightDone && sys.mode === 'mission' && $('tour').checked && !tourTimer) tourTimer = setTimeout(() => { tourTimer = null; if ($('tour').checked) randomTarget(); }, 1400 / speed);
   }
   if (steps) { trailGeo.setDrawRange(0, trailN); trailGeo.attributes.position.needsUpdate = true; }
   const alpha = Math.min(1, acc / DT);
@@ -360,6 +394,8 @@ function frame(now) {
     windArrow.setLength(0.6 + wmag * 0.45, 0.5, 0.35);
   } else windArrow.visible = false;
 
+  const blink = (sys.mode === 'rtb' || sys.mode === 'landing') && Math.floor(now / 250) % 2;
+  led.material.color.setHex(sys.mode === 'charging' ? 0x2a323d : blink ? 0xff5a3c : sys.mode === 'mission' ? 0x38c6f0 : 0xf5a524);
   controls.update();
   renderer.render(scene, camera);
 
@@ -370,6 +406,7 @@ function frame(now) {
     setBar('barT', 'valT', last.u[0], false, 100, '%');
     setBar('barR', 'valR', last.u[1], true, 30, '°');
     setBar('barP', 'valP', last.u[2], true, 30, '°');
+    renderHealth();
   }
 }
 
